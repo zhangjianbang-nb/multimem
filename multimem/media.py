@@ -1,10 +1,10 @@
 """Multimodal helpers: attachment ingestion, captioning hook, frame sampling.
 
-Design (see docs/DESIGN.md): every memory keeps natural-language text as the
+Design (see docs/DESIGN-v2.md): every memory keeps natural-language text as the
 canonical searchable body; binaries live on disk referenced by path. Images
-contribute (a) their caption text and (b) optionally an image embedding.
-Videos are sampled into keyframes; each keyframe becomes one episodic item
-linked back to the source video.
+contribute (a) their caption text and (b) optionally a vision embedding.
+Videos are sampled into keyframes carrying timestamps; each keyframe becomes
+one episodic item linked back to the source video.
 """
 
 from __future__ import annotations
@@ -12,6 +12,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import mimetypes
+import re
 import shutil
 import subprocess
 from dataclasses import dataclass
@@ -112,3 +113,63 @@ def ingest_image(
         caption=caption,
     )
     return IngestResult(attachment=att, text=caption)
+
+
+def sample_video_keyframes(
+    source: Path,
+    out_dir: Path,
+    max_frames: int = 8,
+) -> list[tuple[Path, float | None]]:
+    """Sample keyframes from a video.
+
+    Returns a list of ``(frame_path, t_seconds_or_None)``. Strategy
+    (docs/research/03-multimodal.md section 1.2): scene-boundary sampling
+    first (``select='gt(scene,0.3)'``) because cut points mark event
+    boundaries better than even spacing; if no scene cuts are found, fall
+    back to ffmpeg's ``thumbnail`` representative-frame filter. Timestamps
+    are parsed from ffmpeg's ``showinfo`` log. Raises RuntimeError when
+    ffmpeg is missing or the file cannot be decoded.
+    """
+    source = Path(source)
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    ffmpeg = shutil.which("ffmpeg")
+    if ffmpeg is None:
+        raise RuntimeError("ffmpeg not found on PATH")
+
+    def _extract(filter_graph: str, tag: str) -> list[tuple[Path, float | None]]:
+        for old in out_dir.glob(f"{tag}-*.jpg"):
+            old.unlink()
+        output_pattern = out_dir / (tag + "-%04d.jpg")
+        proc = subprocess.run(
+            [
+                ffmpeg, "-hide_banner", "-nostats",
+                "-i", source,
+                "-vf", filter_graph,
+                "-frames:v", max_frames,
+                "-q:v", "3",
+                output_pattern,
+            ],
+            capture_output=True,
+            text=True,
+        )
+        if proc.returncode != 0 or not any(out_dir.glob(f"{tag}-*.jpg")):
+            raise RuntimeError(f"ffmpeg sampling failed: {proc.stderr[-400:]}")
+        frames = sorted(out_dir.glob(f"{tag}-*.jpg"))
+        # parse pts_time from showinfo lines: "[Parsed_showinfo_2 ...] n: 0 pts_time:3.7"
+        times: dict[int, float] = {}
+        for m in re.finditer(r"n:\s*(\d+)\s+.*?pts_time:([\d.]+)", proc.stderr):
+            times[int(m.group(1))] = float(m.group(2))
+        out: list[tuple[Path, float | None]] = []
+        for i, f in enumerate(frames):
+            out.append((f, times.get(i)))
+        return out
+
+    try:
+        frames = _extract("select=gt(scene,0.3)", "scene")
+        if len(frames) >= 2:
+            return frames
+    except RuntimeError:
+        pass
+    # fallback: ffmpeg's own representative frames (even-ish coverage)
+    return _extract("thumbnail", "thumb")

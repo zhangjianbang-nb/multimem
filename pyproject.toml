@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "multimem"
-version = "0.1.0"
+version = "0.2.0"
 description = "Multimodal agent memory: episodic + semantic memory over text/images/video frames, hybrid retrieval, consolidation, and a dependency-free MCP server."
 readme = "README.md"
 license = { text = "MIT" }

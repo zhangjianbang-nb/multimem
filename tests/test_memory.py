@@ -98,3 +98,26 @@ def test_recency_weighting(mem):
     m.add_text("newer entry", importance=0.5)
     hits = m.search("entry", k=2)
     assert hits[0].item.content == "newer entry"
+
+def test_relevance_is_true_cosine():
+    """Regression (v0.2): relevance used to divide by the row norm twice,
+    so it returned x·q/||x||² instead of cosine similarity."""
+    from multimem.encode import HashingEmbedder
+
+    m = Memory(":memory:")
+    m.add_text("alpha beta")
+    m.add_text("alpha beta gamma delta epsilon zeta")
+    q = m.embedder.embed(["alpha beta"])[0]
+    ref = HashingEmbedder(dim=m.embedder.dim)
+    a = ref.embed(["alpha beta"])[0]
+    b = ref.embed(["alpha beta gamma delta epsilon zeta"])[0]
+    expected = {
+        "alpha beta": float(a @ q / (np.linalg.norm(a) * np.linalg.norm(q))),
+        "alpha beta gamma delta epsilon zeta": float(
+            b @ q / (np.linalg.norm(b) * np.linalg.norm(q))
+        ),
+    }
+    hits = m.search("alpha beta", k=2, valid_only=False)
+    got = {h.item.content: h.parts["relevance"] for h in hits}
+    for content, exp in expected.items():
+        assert got[content] == pytest.approx(exp, abs=1e-5)

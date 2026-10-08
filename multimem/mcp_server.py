@@ -125,7 +125,7 @@ def handle_request(mem: Memory, req: dict, registry: dict) -> dict | None:
             "jsonrpc": "2.0", "id": rid,
             "result": {
                 "protocolVersion": PROTOCOL_VERSION,
-                "serverInfo": {"name": "multimem", "version": "0.1.0"},
+                "serverInfo": {"name": "multimem", "version": "0.2.0"},
                 "capabilities": {"tools": {}},
             },
         }

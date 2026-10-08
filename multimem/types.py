@@ -77,6 +77,7 @@ class MemoryItem:
     modality: str = MOD_TEXT  # primary modality
     tags: list[str] = field(default_factory=list)
     importance: float = 0.5  # 0..1
+    use_count: int = 0  # retrieval feedback (v0.2); shapes decay resistance
     created_at: str = field(default_factory=now_iso)
     # validity interval for semantic facts (bi-temporal, cf. Zep/Graphiti)
     valid_at: Optional[str] = None
@@ -94,6 +95,7 @@ class MemoryItem:
             "modality": self.modality,
             "tags": ",".join(self.tags),
             "importance": self.importance,
+            "use_count": self.use_count,
             "created_at": self.created_at,
             "valid_at": self.valid_at,
             "invalid_at": self.invalid_at,
@@ -113,6 +115,7 @@ class MemoryItem:
             modality=row["modality"],
             tags=[t for t in (row["tags"] or "").split(",") if t],
             importance=row["importance"],
+            use_count=int(row.get("use_count") or 0),
             created_at=row["created_at"],
             valid_at=row["valid_at"],
             invalid_at=row["invalid_at"],
